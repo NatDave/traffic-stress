@@ -1,1 +1,1 @@
-OOP-based program for evaluating bicycle level of traffic stress at traffic intersections.
+OOP-based program for evaluating bicycle level of traffic stress.
