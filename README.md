@@ -1,1 +1,2 @@
-Programs to evaluate bicycle level of traffic stress at segments and intersections.
+**Bicycle Level of Traffic Stress (LTS)**: LTS is a framework that measures how comfortable a road feels for cyclists, with levels ranging from LTS 1 (low-stress, suitable for most cyclists) to LTS 4 (high-stress, requiring high confidence).  
+**Crossing Level of Traffic Stress**: This evaluates the comfort and safety for cyclists at intersections or crossings, considering factors like crossing distance, signal timing, and traffic volume to rate the stress level.
