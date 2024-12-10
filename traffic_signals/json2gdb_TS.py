@@ -62,6 +62,3 @@ with arcpy.da.InsertCursor(feature_class_path, ["SHAPE@", *field_mapping.values(
                 cursor.insertRow(row)
             except Exception as e:
                 print(f"Error processing node {node['id']}: {e}")
-
-# Completion message
-print("JSON data has been successfully imported as a feature class in ArcGIS Pro.")
