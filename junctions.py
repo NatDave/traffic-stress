@@ -13,7 +13,7 @@ def calculate_bearing(point1, point2):
     return (math.degrees(math.atan2(x, y)) + 360) % 360
 
 # Read the shapefile to get the road network data
-roads_gdf = gpd.read_file(r"C:\Users\................\boston_streets.shp")
+roads_gdf = gpd.read_file(r"C:\Users\..............\boston_streets.shp")
 
 # Extract segment endpoints (start and end coordinates)
 endpoints_dict = defaultdict(list)
@@ -27,7 +27,7 @@ for idx, row in roads_gdf.iterrows():
 
 # Identify junctions where 3 or more segments meet
 junctions = {}
-junction_id = 1
+j_id = 1
 
 for point, segments in endpoints_dict.items():
     if len(segments) >= 3:
@@ -48,23 +48,25 @@ for point, segments in endpoints_dict.items():
             leg['ccw_rank'] = rank
         
         # Store junction details
-        junctions[junction_id] = {
+        junctions[j_id] = {
             'coordinates': point,
             'segments': segments,
             'ccw_junclegs_df': legs_data
         }
-        junction_id += 1
+        j_id += 1
 
 # Create a GeoDataFrame for junctions
 junction_rows = []
 for jid, data in junctions.items():
     point = data['coordinates']
     junction_rows.append({
-        'junction_id': jid,
+        'j_id': jid,
         'geometry': Point(point)
     })
 
 junctions_gdf = gpd.GeoDataFrame(junction_rows, crs=roads_gdf.crs)
 
 # Save the junctions as a shapefile
-junctions_gdf.to_file(r"C:\Users\................\junctions_ccw.shp")
+junctions_gdf.to_file(r"C:\Users\.............\junctions_ccw.shp")
+
+print(f"Identified {len(junctions)} junctions.")
