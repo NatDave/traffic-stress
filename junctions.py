@@ -13,7 +13,7 @@ def calculate_bearing(point1, point2):
     return (math.degrees(math.atan2(x, y)) + 360) % 360
 
 # Read the shapefile to get the road network data
-roads_gdf = gpd.read_file(r"C:\Users\..............\boston_streets.shp")
+roads_gdf = gpd.read_file(r"C:\Users\.............\boston_streets.shp")
 
 # Extract segment endpoints (start and end coordinates)
 endpoints_dict = defaultdict(list)
@@ -67,6 +67,6 @@ for jid, data in junctions.items():
 junctions_gdf = gpd.GeoDataFrame(junction_rows, crs=roads_gdf.crs)
 
 # Save the junctions as a shapefile
-junctions_gdf.to_file(r"C:\Users\.............\junctions_ccw.shp")
+junctions_gdf.to_file(r"C:\Users\.................\junctions.shp")
 
 print(f"Identified {len(junctions)} junctions.")
