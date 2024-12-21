@@ -14,12 +14,11 @@ import pyproj
 # Load the Road Network Data
 #############################
 
-roads_path = r"C:\Users\..........\boston_streets.shp"
+roads_path = r"C:\Users\................\boston_streets.shp"
 roads_gdf = gpd.read_file(roads_path)
 # Set 'unique_id' as index for faster lookups later
 if 'unique_id' in roads_gdf.columns and roads_gdf.index.name != 'unique_id':
     roads_gdf = roads_gdf.set_index('unique_id', drop=False)
-
 
 ##############################
 # Create Junctions from Roads
@@ -73,11 +72,9 @@ for point, segments in endpoints_dict.items():
             j_id += 1
 
 junctions_gdf = gpd.GeoDataFrame(junctions, crs=roads_gdf.crs)
-junctions_path = r"C:\Users\..........S\junctions.shp"
+junctions_path = r"C:\Users\................\junctions.shp"
 junctions_gdf.to_file(junctions_path)
 print(f"Identified {len(junctions)} junctions.")
-
-
 
 #########################
 # Create Legs Dictionary
@@ -116,7 +113,7 @@ def calculate_bearing(junc_coord, line_geom):
         bearing_degrees += 360
     return bearing_degrees
 
-def point_from_bearing(junc_point, bearing_, radii=5.5):
+def point_from_bearing(junc_point, bearing_, radii=6):
     """
     Given a junction coordinate and a bearing, returns a point radii away in that direction.
     """
@@ -165,8 +162,6 @@ for idx, junc_row in junctions_gdf.iterrows():
 
 print("legs_dict created.")
 
-
-
 #############################
 # Create Crossing Geometries
 #############################
@@ -176,7 +171,7 @@ def create_crossings(legs_dict, roads_gdf, output_path):
     Similar logic to Montreal code:
     Identify pairs of legs that form a valid crossing and create line geometries.
     """
-    crossings_gdf = gpd.GeoDataFrame()
+    crossings_gdf = gpd.GeoDataFrame(geometry=gpd.GeoSeries())
     crossings_gdf['geometry'] = None
     row_idx = 0
 
@@ -208,8 +203,8 @@ def create_crossings(legs_dict, roads_gdf, output_path):
 
                             from_bear = from_df['avg_bearing'].values[0]
                             to_bear = to_df['avg_bearing'].values[0]
-                            start_point = point_from_bearing(via_coords, from_bear, radii=5.5)
-                            end_point = point_from_bearing(via_coords, to_bear, radii=5.5)
+                            start_point = point_from_bearing(via_coords, from_bear, radii=6)
+                            end_point = point_from_bearing(via_coords, to_bear, radii=6)
                             rels_geom = LineString([start_point, end_point])
 
                             offset_dist = multi_junction_offset if len(junc_data['_jnodes']) > 1 else single_junction_offset
@@ -233,23 +228,23 @@ def create_crossings(legs_dict, roads_gdf, output_path):
                             # Populate GDF
                             crossings_gdf.at[row_idx, 'geometry'] = rels_geom_right_offset
                             crossings_gdf.at[row_idx, 'Junc_ID'] = junc_id
-                            crossings_gdf.at[row_idx, 'from_cc_rank'] = from_cc_
-                            crossings_gdf.at[row_idx, 'to_cc_rank'] = to_cc_
-                            crossings_gdf.at[row_idx, 'crossed_cc_rank'] = crossed_cc_
-                            crossings_gdf.at[row_idx, 'from_seg_id'] = from_seg_id
-                            crossings_gdf.at[row_idx, 'to_seg_id'] = to_seg_id
-                            crossings_gdf.at[row_idx, 'crossed_seg_id'] = crossed_seg_id
-                            crossings_gdf.at[row_idx, 'from_street'] = from_street
-                            crossings_gdf.at[row_idx, 'to_street'] = to_street
-                            crossings_gdf.at[row_idx, 'crossed_street'] = crossed_street
+                            crossings_gdf.at[row_idx, 'from_rank'] = from_cc_
+                            crossings_gdf.at[row_idx, 'to_rank'] = to_cc_
+                            crossings_gdf.at[row_idx, 'xx_rank'] = crossed_cc_
+                            crossings_gdf.at[row_idx, 'from_seg'] = from_seg_id
+                            crossings_gdf.at[row_idx, 'to_seg'] = to_seg_id
+                            crossings_gdf.at[row_idx, 'xx_seg'] = crossed_seg_id
+                            crossings_gdf.at[row_idx, 'from_str'] = from_street
+                            crossings_gdf.at[row_idx, 'to_str'] = to_street
+                            crossings_gdf.at[row_idx, 'xx_str'] = crossed_street
 
                             row_idx += 1
 
     # Set CRS to match roads_gdf
     crossings_gdf.crs = roads_gdf.crs
     crossings_gdf.to_file(output_path)
-    print(f"Saved {len(crossings_gdf)} crossings to {output_path}")
+    print(f"Saved {len(crossings_gdf)} crossings")
 
 # Specify output path for crossings
-crossings_path = r"C:\Users\...........\crossings.shp"
+crossings_path = r"C:\Users\................\crossings.shp"
 create_crossings(legs_dict, roads_gdf, crossings_path)
