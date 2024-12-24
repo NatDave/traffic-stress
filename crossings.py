@@ -10,241 +10,310 @@ from shapely.geometry import Point, LineString
 from collections import defaultdict
 import pyproj
 
+############################################
+# Set Directory Paths and File Name Strings
+############################################
+
+base_dir = r"C:\Users\natdave\#########"
+roads_filename = "boston_streets.shp"
+junctions_filename = "junctions.shp"
+crossings_filename = "crossings.shp"
+
+roads_path = f"{base_dir}\\{roads_filename}"
+junctions_path = f"{base_dir}\\{junctions_filename}"
+crossings_path = f"{base_dir}\\{crossings_filename}"
+
 #############################
 # Load the Road Network Data
 #############################
 
-roads_path = r"C:\Users\................\boston_streets.shp"
 roads_gdf = gpd.read_file(roads_path)
-# Set 'unique_id' as index for faster lookups later
+
+# Set 'unique_id' as index for faster lookups (if not already)
 if 'unique_id' in roads_gdf.columns and roads_gdf.index.name != 'unique_id':
     roads_gdf = roads_gdf.set_index('unique_id', drop=False)
+
+print("Loaded roads_gdf with CRS:", roads_gdf.crs)
 
 ##############################
 # Create Junctions from Roads
 ##############################
 
+# We'll exclude certain street types from forming junctions
 exclude_terms = ["turnpike", "interstate", "i-", "express", "highway", "alley"]
 
-# Build a quick lookup: unique_id -> (streetname, geometry)
-road_info = {
-    row['unique_id']: (row['STREETNAME'] or "", row.geometry)
-    for idx, row in roads_gdf.iterrows()
-}
+# Build a quick lookup: unique_id -> (street_name, geometry)
+road_info = {}
+for idx, row in roads_gdf.iterrows():
+    u_id = row['unique_id']
+    st_name = (row['STREETNAME'] or "")  # We'll rename later if needed
+    geom = row.geometry
+    road_info[u_id] = (st_name, geom)
 
+# Collect the endpoints in a dictionary
+# Key = endpoint coords, Value = list of segment IDs that touch this endpoint
 endpoints_dict = defaultdict(list)
 
-for uid, (streetname, geom) in road_info.items():
+for seg_id, (street_name, geom) in road_info.items():
+    if geom is None:
+        continue
+    
     if geom.geom_type == "LineString":
-        start_coords = geom.coords[0]
-        end_coords = geom.coords[-1]
+        coords = geom.coords
     elif geom.geom_type == "MultiLineString":
-        first_line = geom.geoms[0]
-        start_coords = first_line.coords[0]
-        end_coords = first_line.coords[-1]
+        if len(geom.geoms) > 0:
+            coords = geom.geoms[0].coords
+        else:
+            continue
     else:
         continue
 
-    endpoints_dict[start_coords].append(uid)
-    endpoints_dict[end_coords].append(uid)
+    if len(coords) < 2:
+        continue
 
-junctions = []
-j_id = 1
+    start_coords = coords[0]        # first point
+    end_coords = coords[-1]         # last point
 
-for point, segments in endpoints_dict.items():
-    if len(segments) >= 3:  # 3+ segments form a junction
-        seg_ids = []
+    endpoints_dict[start_coords].append(seg_id)
+    endpoints_dict[end_coords].append(seg_id)
+
+# Build a list of junction records
+junctions_list = []
+junction_id = 1
+
+for point_coords, seg_ids_at_pt in endpoints_dict.items():
+    if len(seg_ids_at_pt) >= 3:  # 3+ segments => a potential junction
+        seg_ids_filtered = []
         valid_junction = True
-        for seg_id in segments:
-            streetname, _ = road_info[seg_id]
-            if any(term.lower() in streetname.lower() for term in exclude_terms):
+        for sid in seg_ids_at_pt:
+            st_name, _ = road_info[sid]
+            # Exclude if street name matches excluded terms
+            if any(term.lower() in st_name.lower() for term in exclude_terms):
                 valid_junction = False
                 break
-            seg_ids.append(seg_id)
+            seg_ids_filtered.append(sid)
 
         if valid_junction:
-            junctions.append({
-                'Junc_ID': j_id,
-                'Inc_Segs': seg_ids,
-                'Num_Legs': len(seg_ids),
-                'geometry': Point(point)
+            junctions_list.append({
+                'JUNC_ID': junction_id,
+                'INC_SEGS': seg_ids_filtered,   # Store segment IDs
+                'NUM_LEGS': len(seg_ids_filtered),
+                'geometry': Point(point_coords)
             })
-            j_id += 1
+            junction_id += 1
 
-junctions_gdf = gpd.GeoDataFrame(junctions, crs=roads_gdf.crs)
-junctions_path = r"C:\Users\................\junctions.shp"
+# Create a GeoDataFrame for the junctions
+junctions_gdf = gpd.GeoDataFrame(junctions_list, crs=roads_gdf.crs)
 junctions_gdf.to_file(junctions_path)
-print(f"Identified {len(junctions)} junctions.")
+print(f"Identified {len(junctions_gdf)} junctions.")
+print(f"Saved junctions to: {junctions_path}")
+
 
 #########################
 # Create Legs Dictionary
 #########################
 
-def calculate_bearing(junc_coord, line_geom):
+def calc_bearing(junction_xy, line_geom):
     """
-    Calculate bearing (0-360 degrees) from junction point along the segment.
+    Calculate bearing (0-360 degrees) from the junction outward along the segment.
     0° = North, increases clockwise.
     """
-    x_j, y_j = junc_coord
+    x_j, y_j = junction_xy
+
+    # Extract coords from geometry
     if line_geom.geom_type == "LineString":
         coords = line_geom.coords
     elif line_geom.geom_type == "MultiLineString":
-        # Use first line
-        coords = line_geom.geoms[0].coords
+        if len(line_geom.geoms) > 0:
+            coords = line_geom.geoms[0].coords
+        else:
+            return None
     else:
         return None
+    
+    if len(coords) < 2:
+        return None
 
-    start = coords[0]
-    end = coords[-1]
+    start_pt = coords[0]
+    end_pt = coords[-1]
 
-    dist_to_start = (start[0] - x_j)**2 + (start[1] - y_j)**2
-    dist_to_end = (end[0] - x_j)**2 + (end[1] - y_j)**2
+    # Figure out which endpoint is closer to the junction
+    dist_start = (start_pt[0] - x_j)**2 + (start_pt[1] - y_j)**2
+    dist_end   = (end_pt[0] - x_j)**2 + (end_pt[1] - y_j)**2
 
-    if dist_to_start < dist_to_end:
-        dx = end[0] - x_j
-        dy = end[1] - y_j
+    if dist_start < dist_end:
+        # The line "starts" at the junction, so bearing is junction->end
+        dx = end_pt[0] - x_j
+        dy = end_pt[1] - y_j
     else:
-        dx = start[0] - x_j
-        dy = start[1] - y_j
+        # The line "ends" at the junction, so bearing is junction->start
+        dx = start_pt[0] - x_j
+        dy = start_pt[1] - y_j
 
-    angle_radians = math.atan2(dx, dy)
-    bearing_degrees = math.degrees(angle_radians)
-    if bearing_degrees < 0:
-        bearing_degrees += 360
-    return bearing_degrees
+    angle_rad = math.atan2(dx, dy)
+    bearing_deg = math.degrees(angle_rad)
+    if bearing_deg < 0:
+        bearing_deg += 360
 
-def point_from_bearing(junc_point, bearing_, radii=6):
+    return bearing_deg
+
+def point_from_bearing(junction_xy, bearing_deg, dist_m=6):
     """
-    Given a junction coordinate and a bearing, returns a point radii away in that direction.
+    Return a point dist_m meters away from the junction_xy at the given bearing (deg).
+    0° = North; angle increases clockwise.
     """
-    x_j, y_j = junc_point
-    point_x = x_j + radii * np.sin(math.radians(bearing_))
-    point_y = y_j + radii * np.cos(math.radians(bearing_))
-    return (point_x, point_y)
+    x_j, y_j = junction_xy
+    theta = math.radians(bearing_deg)
+    dx = dist_m * math.sin(theta)
+    dy = dist_m * math.cos(theta)
+    return (x_j + dx, y_j + dy)
 
-# Create legs_dict similar to Montreal code
+# Build a dictionary keyed by JUNC_ID, storing a DataFrame of legs
 legs_dict = {}
 
 for idx, junc_row in junctions_gdf.iterrows():
-    junc_id = junc_row['Junc_ID']
-    junc_geom = junc_row.geometry
-    junc_coord = (junc_geom.x, junc_geom.y)
-    inc_segs = junc_row['Inc_Segs']
+    j_id = junc_row['JUNC_ID']
+    j_geom = junc_row.geometry
+    j_xy = (j_geom.x, j_geom.y)
+    incident_segs = junc_row['INC_SEGS']
 
-    legs_data = []
-    for seg_id in inc_segs:
+    leg_records = []
+    for seg_id in incident_segs:
         if seg_id in roads_gdf.index:
-            seg_streetname = roads_gdf.loc[seg_id, 'STREETNAME']
+            st_name = roads_gdf.loc[seg_id, 'STREETNAME']
             seg_geom = roads_gdf.loc[seg_id, 'geometry']
-            bearing = calculate_bearing(junc_coord, seg_geom)
-            if bearing is not None:
-                legs_data.append({
-                    'links': [seg_id],
-                    'STREETNAME': seg_streetname,
-                    'avg_bearing': bearing
+            brg = calc_bearing(j_xy, seg_geom)
+            if brg is not None:
+                leg_records.append({
+                    'LINKS': [seg_id],      # list of segment IDs
+                    'ST_NAME': st_name,     # street name
+                    'AVG_BRG': brg          # bearing of the segmenmt
                 })
 
-    if len(legs_data) > 0:
-        legs_df = pd.DataFrame(legs_data)
-        legs_df = legs_df.sort_values('avg_bearing').reset_index(drop=True)
-        legs_df['cc_rank'] = legs_df.index + 1
-        legs_dict[junc_id] = {
-            '_jcoord': junc_coord,
-            '_jnodes': [junc_id],  # simplifying to single node
-            'cc_junclegs_df': legs_df
+    if len(leg_records) > 0:
+        legs_df = pd.DataFrame(leg_records)
+        # Sort by bearing descending, so 360 deg (North) is first, going counterclockwise
+        legs_df = legs_df.sort_values('AVG_BRG', ascending=False).reset_index(drop=True)
+        # Create a rank
+        legs_df['CCW_RANK'] = legs_df.index + 1
+
+
+        legs_dict[j_id] = {
+            'JUNC_XY': j_xy,
+            'J_NODES': [j_id],
+            'LEGS_DF': legs_df
         }
     else:
-        legs_dict[junc_id] = {
-            '_jcoord': junc_coord,
-            '_jnodes': [junc_id],
-            'cc_junclegs_df': pd.DataFrame(columns=['links', 'STREETNAME', 'avg_bearing', 'cc_rank'])
+        # Empty DataFrame if no legs
+        legs_dict[j_id] = {
+            'JUNC_XY': j_xy,
+            'J_NODES': [j_id],
+            'LEGS_DF': pd.DataFrame(columns=['LINKS', 'ST_NAME', 'AVG_BRG', 'CCW_RANK'])
         }
 
-print("legs_dict created.")
+print("legs_dict created with bearing info for each junction.")
 
 #############################
 # Create Crossing Geometries
 #############################
 
-def create_crossings(legs_dict, roads_gdf, output_path):
+def create_crossings(legs_dictionary, roads_geo_df, out_path):
     """
-    Similar logic to Montreal code:
-    Identify pairs of legs that form a valid crossing and create line geometries.
+    Identify pairs of legs forming valid crossings (Montreal logic),
+    create line geometries, and offset for visualization.
     """
-    crossings_gdf = gpd.GeoDataFrame(geometry=gpd.GeoSeries())
-    crossings_gdf['geometry'] = None
+    cross_gdf = gpd.GeoDataFrame(geometry=gpd.GeoSeries())
+    cross_gdf['geometry'] = None
     row_idx = 0
 
-    # Offsets
-    multi_junction_offset = 8
-    single_junction_offset = 5
+    # Offsets in meters
+    offset_multi = 8
+    offset_singl = 5
 
-    for junc_id, junc_data in legs_dict.items():
-        cc_junclegs_df = junc_data['cc_junclegs_df']
-        via_coords = junc_data['_jcoord']
+    for j_id, j_data in legs_dictionary.items():
+        legs_df = j_data['LEGS_DF']
+        junc_xy = j_data['JUNC_XY']
 
-        if len(cc_junclegs_df) >= 3:
-            num_legs = len(cc_junclegs_df)
-            for i_ in range(num_legs):
-                for j_ in range(num_legs):
-                    if j_ != i_:
-                        from_df = cc_junclegs_df.iloc[[i_]]
-                        to_df = cc_junclegs_df.iloc[[j_]]
-                        from_cc_ = from_df['cc_rank'].values[0]
-                        to_cc_ = to_df['cc_rank'].values[0]
+        # We only create crossings if 3+ legs
+        if len(legs_df) >= 3:
+            n_legs = len(legs_df)
+            for i_ in range(n_legs):
+                for j_ in range(n_legs):
+                    if i_ == j_:
+                        continue
 
-                        # Determine legs in between
-                        num_leg_bein_crossed_ = ((to_cc_ - from_cc_) % num_legs) - 1
+                    from_leg = legs_df.iloc[[i_]]
+                    to_leg   = legs_df.iloc[[j_]]
 
-                        if num_leg_bein_crossed_ == 1:
-                            # Identify crossed leg
-                            crossed_cc_ = ((from_cc_ + num_leg_bein_crossed_ - 1) % num_legs) + 1
-                            crossed_df = cc_junclegs_df.loc[cc_junclegs_df['cc_rank'] == crossed_cc_]
+                    from_rank = from_leg['CCW_RANK'].values[0]
+                    to_rank   = to_leg['CCW_RANK'].values[0]
 
-                            from_bear = from_df['avg_bearing'].values[0]
-                            to_bear = to_df['avg_bearing'].values[0]
-                            start_point = point_from_bearing(via_coords, from_bear, radii=6)
-                            end_point = point_from_bearing(via_coords, to_bear, radii=6)
-                            rels_geom = LineString([start_point, end_point])
+                    # Determine how many legs are between them
+                    num_between = ((to_rank - from_rank) % n_legs) - 1
 
-                            offset_dist = multi_junction_offset if len(junc_data['_jnodes']) > 1 else single_junction_offset
-                            try:
-                                rels_geom_right_offset = rels_geom.parallel_offset(offset_dist, 'right', join_style=2, mitre_limit=2)
-                            except:
-                                rels_geom_right_offset = rels_geom
+                    # If there's exactly 1 leg between => crossing
+                    if num_between == 1:
+                        # Identify the crossed leg
+                        crossed_rank = ((from_rank + num_between - 1) % n_legs) + 1
+                        crossed_leg = legs_df.loc[legs_df['CCW_RANK'] == crossed_rank]
 
-                            from_seg_ids = from_df['links'].values[0]
-                            to_seg_ids = to_df['links'].values[0]
-                            crossed_seg_ids = crossed_df['links'].values[0]
+                        from_brg = from_leg['AVG_BRG'].values[0]
+                        to_brg   = to_leg['AVG_BRG'].values[0]
 
-                            from_seg_id = from_seg_ids[0]
-                            to_seg_id = to_seg_ids[0]
-                            crossed_seg_id = crossed_seg_ids[0]
+                        # Build the line geometry
+                        start_pt = point_from_bearing(junc_xy, from_brg, dist_m=6)
+                        end_pt   = point_from_bearing(junc_xy, to_brg,   dist_m=6)
+                        cross_line = LineString([start_pt, end_pt])
 
-                            from_street = from_df['STREETNAME'].values[0]
-                            to_street = to_df['STREETNAME'].values[0]
-                            crossed_street = crossed_df['STREETNAME'].values[0]
+                        # Offset line for visualization
+                        # If multiple junction nodes, offset a bit more
+                        if len(j_data['J_NODES']) > 1:
+                            offset_dist = offset_multi
+                        else:
+                            offset_dist = offset_singl
 
-                            # Populate GDF
-                            crossings_gdf.at[row_idx, 'geometry'] = rels_geom_right_offset
-                            crossings_gdf.at[row_idx, 'Junc_ID'] = junc_id
-                            crossings_gdf.at[row_idx, 'from_rank'] = from_cc_
-                            crossings_gdf.at[row_idx, 'to_rank'] = to_cc_
-                            crossings_gdf.at[row_idx, 'xx_rank'] = crossed_cc_
-                            crossings_gdf.at[row_idx, 'from_seg'] = from_seg_id
-                            crossings_gdf.at[row_idx, 'to_seg'] = to_seg_id
-                            crossings_gdf.at[row_idx, 'xx_seg'] = crossed_seg_id
-                            crossings_gdf.at[row_idx, 'from_str'] = from_street
-                            crossings_gdf.at[row_idx, 'to_str'] = to_street
-                            crossings_gdf.at[row_idx, 'xx_str'] = crossed_street
+                        try:
+                            cross_line_off = cross_line.parallel_offset(offset_dist, 'right', join_style=2, mitre_limit=2)
+                        except:
+                            cross_line_off = cross_line
 
-                            row_idx += 1
+                        # Extract segment IDs
+                        from_links = from_leg['LINKS'].values[0]
+                        to_links   = to_leg['LINKS'].values[0]
+                        xcd_links  = crossed_leg['LINKS'].values[0]
 
-    # Set CRS to match roads_gdf
-    crossings_gdf.crs = roads_gdf.crs
-    crossings_gdf.to_file(output_path)
-    print(f"Saved {len(crossings_gdf)} crossings")
+                        from_seg = from_links[0]
+                        to_seg   = to_links[0]
+                        xcd_seg  = xcd_links[0]
 
-# Specify output path for crossings
-crossings_path = r"C:\Users\................\crossings.shp"
+                        # Extract street names
+                        from_stnm = from_leg['ST_NAME'].values[0]
+                        to_stnm   = to_leg['ST_NAME'].values[0]
+                        xcd_stnm  = crossed_leg['ST_NAME'].values[0]
+
+                        # Populate cross_gdf
+                        cross_gdf.at[row_idx, 'geometry']   = cross_line_off
+                        cross_gdf.at[row_idx, 'JUNC_ID']    = j_id
+                        cross_gdf.at[row_idx, 'FRM_RANK']   = from_rank
+                        cross_gdf.at[row_idx, 'TO_RANK']    = to_rank
+                        cross_gdf.at[row_idx, 'CRS_RANK']   = crossed_rank
+                        cross_gdf.at[row_idx, 'FRM_SEG']    = from_seg
+                        cross_gdf.at[row_idx, 'TO_SEG']     = to_seg
+                        cross_gdf.at[row_idx, 'CRS_SEG']    = xcd_seg
+                        cross_gdf.at[row_idx, 'FRM_STNM']   = from_stnm
+                        cross_gdf.at[row_idx, 'TO_STNM']    = to_stnm
+                        cross_gdf.at[row_idx, 'CRS_STNM']   = xcd_stnm
+
+                        row_idx += 1
+
+    # Match the CRS of roads
+    cross_gdf.crs = roads_geo_df.crs
+    cross_gdf.to_file(out_path)
+    print(f"Saved {len(cross_gdf)} crossings to {out_path}")
+
+
+#########################
+# Run Crossing Creation
+#########################
+
 create_crossings(legs_dict, roads_gdf, crossings_path)
