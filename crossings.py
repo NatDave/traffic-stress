@@ -13,7 +13,7 @@ from collections import defaultdict
 # Set Directory Paths and File Name Strings
 ############################################
 
-base_dir = r"C:\Users\natda\Desktop"
+base_dir = r"C:\Users\NatDave\Desktop\------------"
 roads_filename = "boston_streets.shp"
 junctions_filename = "junctions.shp"
 crossings_filename = "crossings.shp"
@@ -165,7 +165,7 @@ def merge_close_nodes_and_add_standalones(junctions, roads, threshold):
     return pd.concat([mgdf, sgdf], ignore_index=True)
 
 junctions_gdf = gpd.GeoDataFrame(junctions_list, crs=roads_gdf.crs)
-junctions_gdf = merge_close_nodes_and_add_standalones(junctions_gdf, roads_dict, threshold=32)
+junctions_gdf = merge_close_nodes_and_add_standalones(junctions_gdf, roads_dict, threshold=27)
 junctions_gdf.to_file(junctions_path)
 print(f"Intersections saved: {len(junctions_gdf)} total.")
 
