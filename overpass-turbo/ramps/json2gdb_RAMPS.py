@@ -6,6 +6,7 @@ import os
 json_path = r"C:\Users\natdave\Downloads\freeway_ramps.json"  # Input JSON file
 output_gdb = r"C:\Users\natdave\Downloads\freeway_ramps.gdb"  # Output Geodatabase
 output_fc = "freeway_ramps"  # Feature class name
+projected_fc = "freeway_ramps_6491"  # Name of reprojected feature class
 
 # Create a geodatabase if it doesn't exist
 if not arcpy.Exists(output_gdb):
@@ -26,7 +27,7 @@ ways = [
     if way.get("type") == "way" and "tags" in way and way["tags"].get("highway") == "motorway_link"
 ]
 
-# Extract node coordinates from the JSON
+# Extract node coordinates (OSM data is in WGS84)
 nodes_dict = {
     node["id"]: (node["lon"], node["lat"])
     for node in json_data.get('elements', []) if node["type"] == "node"
@@ -38,12 +39,12 @@ if not ways:
 if not nodes_dict:
     raise ValueError("No nodes found in JSON! Ensure Overpass query includes (._; >;) to retrieve nodes.")
 
-# Create feature class with POLYLINE geometry (EPSG:6491)
+# Create feature class in WGS84 (EPSG:4326) FIRST
 arcpy.CreateFeatureclass_management(
     output_gdb,
     output_fc,
     "POLYLINE",
-    spatial_reference=arcpy.SpatialReference(6491)  # EPSG:6491
+    spatial_reference=arcpy.SpatialReference(4326)  # Store as WGS84 first!
 )
 
 # Collect unique fields from OSM tags
@@ -57,17 +58,15 @@ for field in unique_fields:
     field_name = field.replace(":", "_")  # Ensure valid field names
     arcpy.AddField_management(feature_class_path, field_name, "TEXT")
 
-# Insert data into the feature class
+# Insert data into the feature class (Keep coordinates in WGS84)
 with arcpy.da.InsertCursor(feature_class_path, ["SHAPE@"] + [field.replace(":", "_") for field in unique_fields]) as cursor:
     for way in ways:
         try:
-            # Extract node IDs and convert to coordinates
             node_ids = way.get("nodes", [])
             points = [arcpy.Point(*nodes_dict[node_id]) for node_id in node_ids if node_id in nodes_dict]
 
-            # Only create polylines if there are at least two valid points
             if len(points) > 1:
-                polyline_geometry = arcpy.Polyline(arcpy.Array(points), arcpy.SpatialReference(6491))
+                polyline_geometry = arcpy.Polyline(arcpy.Array(points), arcpy.SpatialReference(4326))  # Keep WGS84
 
                 # Prepare row data
                 row = [polyline_geometry] + [way.get("tags", {}).get(field, None) for field in unique_fields]
@@ -76,4 +75,13 @@ with arcpy.da.InsertCursor(feature_class_path, ["SHAPE@"] + [field.replace(":", 
         except Exception as e:
             print(f"Error processing way {way['id']}: {e}")
 
-print(f"Freeway ramps successfully converted to GDB at: {output_gdb}")
+print(f"Freeway ramps stored in WGS84 (EPSG:4326) in GDB: {output_gdb}")
+
+# Reproject to EPSG:6491
+projected_fc_path = os.path.join(output_gdb, projected_fc)
+if arcpy.Exists(projected_fc_path):
+    arcpy.Delete_management(projected_fc_path)
+
+arcpy.Project_management(feature_class_path, projected_fc_path, arcpy.SpatialReference(6491))
+
+print(f"Reprojected feature class saved as {projected_fc} in EPSG:6491")
