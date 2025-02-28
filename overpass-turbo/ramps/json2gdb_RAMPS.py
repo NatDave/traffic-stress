@@ -34,9 +34,9 @@ nodes_dict = {
 
 # Check if ways and nodes exist
 if not ways:
-    raise ValueError("❌ No freeway ramps (motorway_link) found in JSON. Check Overpass Turbo query!")
+    raise ValueError("No freeway ramps (motorway_link) found in JSON. Check Overpass Turbo query!")
 if not nodes_dict:
-    raise ValueError("❌ No nodes found in JSON! Ensure Overpass query includes (._; >;) to retrieve nodes.")
+    raise ValueError("No nodes found in JSON! Ensure Overpass query includes (._; >;) to retrieve nodes.")
 
 # Create feature class with POLYLINE geometry (EPSG:6491)
 arcpy.CreateFeatureclass_management(
