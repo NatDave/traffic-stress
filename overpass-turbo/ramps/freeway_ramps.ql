@@ -1,4 +1,4 @@
-[out:json][timeout:25];
+[out:json][timeout:60];
 
 // Define search areas
 area["name"="Boston"]["admin_level"="8"]->.boston;
@@ -6,7 +6,7 @@ area["name"="Brookline"]["admin_level"="8"]->.brookline;
 area["name"="Cambridge"]["admin_level"="8"]->.cambridge;
 area["name"="Somerville"]["admin_level"="8"]->.somerville;
 
-// Fetch freeway ramps (motorway links) in the defined areas
+// Get all motorway links (freeway ramps)
 (
   way["highway"="motorway_link"](area.boston);
   way["highway"="motorway_link"](area.brookline);
@@ -14,5 +14,8 @@ area["name"="Somerville"]["admin_level"="8"]->.somerville;
   way["highway"="motorway_link"](area.somerville);
 );
 
-// Output with geometry
+// Fetch all nodes belonging to the ways
+(._; >;);
+
+// Output JSON
 out geom;
