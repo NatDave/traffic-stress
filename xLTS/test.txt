@@ -1,0 +1,22 @@
+IF StOperNEU == 1 THEN
+    IF Lanes_OW > 1 THEN
+        RETURN Lanes_OW
+    ELSE
+        RETURN 1
+
+ELSEIF StOperNEU == 11 THEN
+    RETURN NUMLANE
+
+ELSEIF FEDERALFUN == 7 THEN
+    IF Has_CL == 1 THEN
+        RETURN ROUNDUP(MAX(NUMLANE/2, 1))
+    ELSE
+        RETURN 0
+
+ELSEIF No_CL == 1 THEN
+    RETURN 0
+
+ELSE
+    RETURN ROUNDUP(MAX(NUMLANE/2, 1))
+
+
